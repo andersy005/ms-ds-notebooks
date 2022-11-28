@@ -4,13 +4,16 @@ channels:
   - nodefaults
 dependencies:
   - python=3.10
-  - jupyterlab
-  - pandas
-  - proplot
-  - plotnine
-  - seaborn
-  - hvplot
+  - aiohttp
   - black
   - flake8
+  - fsspec >=2022.11.0
+  - hvplot
   - isort
+  - jupyterlab
+  - pandas
+  - plotnine
   - pre-commit
+  - proplot
+  - pyjanitor >=0.23.1
+  - seaborn
