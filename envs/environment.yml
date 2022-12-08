@@ -17,3 +17,4 @@ dependencies:
   - proplot
   - pyjanitor >=0.23.1
   - seaborn
+  - adjusttext
