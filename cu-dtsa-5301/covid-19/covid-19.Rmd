@@ -1,0 +1,24 @@
+---
+title: 'Reproducible Report on COVID19 Data'
+date: '01/29/2023'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Introduction
+
+Novel Coronavirus (COVID-19) is a global pandemic that has affected countries of all sizes around the world. The Johns Hopkins University Center for Systems Science and Engineering (JHU CSSE) has provided a dataset of confirmed cases and fatalities linked to the virus which are available on their Github page. This analysis looks at the dataset provided by JHU CSSE to provide a better understanding of the severity of the outbreak, and how it has played out over time across different countries and regions.
+
+## Loading Data
+
+```{r setup}
+library(tidyverse)
+
+root <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+
+files <- c("time_series_covid19_confirmed_global.csv", "time_series_covid19_deaths_global.csv")
+
+items <- lapply(files, function(x) read_csv(paste0(root, x)))
+items
+```

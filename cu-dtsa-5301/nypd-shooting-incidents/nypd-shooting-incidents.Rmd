@@ -1,0 +1,502 @@
+---
+title: 'NYPD Shooting Incidents'
+date: '01/29/2023'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Introduction
+
+This is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included. This data can be used by the public to explore the nature of shooting/criminal activity.
+
+## Questions of Interest
+
+This notebook will explore the following questions:
+
+- How many shooting incidents have occurred in NYC by borough? by precinct? by year? by month? by day of the week? by hour of the day?
+- We will look at patterns in the data by creating visualizations to answer the above questions
+- using the `STATISTICAL_MURDER_FLAG`, we will look at a logistic regression model that tries to predict whether a reporting shooting incident resulted in murder or not
+
+## Importing the Data
+
+To import the data, we can use the `read.csv()` function from the `readr` package:
+
+```{r}
+library(tidyverse)
+shootings = read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv")
+```
+
+## Data Preview
+
+Let's have a look at the first six rows of the data:
+
+```{r}
+glimpse(shootings)
+```
+
+- The dataframe "shootings" has 25,596 observations and 19 variables.
+- Most of the variables are character type with length of 25596, but some are numeric with different ranges. The summary provides the count, minimum, 1st quartile, median, mean, 3rd quartile, and maximum values for the numeric variables.
+
+## Tidying and Transforming the data
+
+To tidy and transform, we will:
+
+- Convert `OCCUR_DATE` to date format (currently string)
+- Change `PERP_AGE_GROUP`, `VIC_AGE_GROUP` and `STATISTICAL_MURDER_FLAG` to factor data type
+- Create additional variables to help us with our analysis. We will create new variables called `OCCUR_YEAR` and `OCCUR_MONTH`, `OCCUR_DAY_OF_WEEK` from the `OCCUR_DATE` variable.
+
+```{r}
+# Convert OCCUR_DATE to a Date type
+shootings$OCCUR_DATE <- as.Date(shootings$OCCUR_DATE, format = "%m/%d/%Y")
+shootings$OCCUR_YEAR = format(shootings$OCCUR_DATE, "%Y")
+shootings$OCCUR_MONTH = format(shootings$OCCUR_DATE, "%m")
+shootings$OCCUR_DAY_OF_WEEK = weekdays(shootings$OCCUR_DATE)
+shootings$OCCUR_DAY = format(shootings$OCCUR_DATE, "%d")
+```
+
+```{r}
+factors_columns <- c("BORO", "PRECINCT", "PERP_AGE_GROUP", "PERP_SEX", "PERP_RACE", "VIC_AGE_GROUP", "VIC_SEX", "VIC_RACE", "STATISTICAL_MURDER_FLAG", "OCCUR_YEAR", "OCCUR_MONTH", "OCCUR_DAY_OF_WEEK", "OCCUR_DAY", "JURISDICTION_CODE")
+shootings[factors_columns] <- lapply(shootings[factors_columns], as.factor)
+
+
+```
+
+### Identify the columns with missing values
+
+```{r}
+cols_with_missing = colSums(is.na(shootings))
+cols_with_missing = names(cols_with_missing[cols_with_missing > 0])
+cols_to_drop = c()
+
+for(col in cols_with_missing) {
+  miss_ratio = sum(is.na(shootings[, col])) / nrow(shootings) * 100
+  # append columns with more than 50% missing values to cols_to_drop
+    if(miss_ratio > 50) {
+        cols_to_drop = c(cols_to_drop, col)
+    }
+
+  print(paste(col, "has", miss_ratio, "% missing values"))
+}
+
+
+
+```
+
+Let's identify columns with more than 50% missing values:
+
+```{r}
+cols_to_drop
+```
+
+Let's drop these columns from our dataframe:
+
+```{r}
+shootings = shootings[,!(names(shootings) %in% cols_to_drop)]
+```
+
+### Data Imputation
+
+After dropping columns with more than 50% missing values, we are going to impute the remaining columns with missing values. The code below computes the value counts of the column and normalizes them to obtain the distribution of values. Then, it finds the missing values in the column and replaces them with random values chosen from the distribution of values. The imputed values are selected using the sample function in R, with the prob argument set to the normalized value counts. The final result of this code is that the missing values in the specified column of the dataframe are filled with imputed values chosen from the appropriate distribution.
+
+```{r}
+columns <- c("PERP_AGE_GROUP", "PERP_SEX", "PERP_RACE", "JURISDICTION_CODE")
+for (col in columns) {
+  value_counts <- as.data.frame(table(shootings[,col]))
+  normalized_value_counts <- value_counts[,2]/sum(value_counts[,2])
+  missing <- is.na(shootings[, col])
+  shootings[missing, col] <- sample(value_counts[,1], size = sum(missing), replace = TRUE, prob = normalized_value_counts)
+}
+
+# Drop some weird values in PERP_AGE_GROUP
+shootings <- shootings[!shootings$PERP_AGE_GROUP%in% c("1020", "940", "224"),]
+
+glimpse(shootings)
+```
+
+let's look at the summary again
+
+```{r}
+summary(shootings)
+```
+
+## Exploratory Data Analysis
+
+### How many shooting incidents have occurred in NYC by borough?
+
+```{r}
+shootings %>%
+  count(BORO) %>%
+  ggplot(aes(x = BORO, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Shooting Incidents by Borough",
+       x = "Borough",
+       y = "Number of Shooting Incidents")
+```
+
+### How many shooting incidents have occurred in NYC by precinct?
+
+```{r}
+shootings %>%
+  count(PRECINCT) %>%
+  arrange(desc(n)) %>%
+  top_n(25) %>%
+  mutate(PRECINCT = factor(PRECINCT, levels = PRECINCT)) %>%
+  ggplot(aes(x = PRECINCT, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Shooting Incidents by Precinct",
+       x = "Precinct",
+       y = "Number of Shooting Incidents") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### How many shooting incidents have occurred in NYC by victim's age group?
+
+```{r}
+shootings %>%
+  count(VIC_AGE_GROUP) %>%
+  mutate(VIC_AGE_GROUP = fct_reorder(VIC_AGE_GROUP, n)) %>%
+  ggplot(aes(x = VIC_AGE_GROUP, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Shooting Incidents by Victim's Age Group",
+       x = "Victim's Age Group",
+       y = "Number of Shooting Incidents")
+```
+
+### Location Wise pie chart of Shooting Incidents Occurance
+
+```{r}
+shootings %>%
+  count(BORO) %>%
+  mutate(percent = round(n/sum(n) * 100, 2)) %>%
+  ggplot(aes(x = "", y = percent, fill = BORO)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste(round(percent, 2), "%")), position = position_stack(vjust = 0.5)) +
+  labs(title = "Location wise pie chart of Shooting Incidents Occurance in NYPD",
+       x = "",
+       y = "Percentage of Shooting Incidents") +
+  theme(legend.position = "bottom")
+```
+
+### What is the distribution of the number of shooting incidents by victim's age group?
+
+```{r}
+shootings %>%
+  count(VIC_AGE_GROUP) %>%
+  mutate(percent = round(n/sum(n) * 100, 2)) %>%
+  ggplot(aes(x = "", y = percent, fill = (VIC_AGE_GROUP))) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste(round(percent, 2), "%")), position = position_stack(vjust = 0.5)) +
+  labs(title = "pie chart of shooting incidents by victim's age group",
+       x = "",
+       y = "Percentage of Shooting Incidents") +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+shootings %>%
+  count(VIC_RACE, VIC_SEX) %>%
+  mutate(percent = round(n/sum(n) * 100, 2)) %>%
+  ggplot(aes(x = "", y = percent, fill = VIC_RACE)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  labs(title = "pie chart of shooting incidents by victim's race",
+       x = "",
+       y = "Percentage of Shooting Incidents") +
+  theme(legend.position = "bottom")
+
+
+```
+
+### When do shooting incidents occur in NYC?
+
+```{r}
+shootings %>%
+  count(OCCUR_TIME) %>%
+  ggplot(aes(x = OCCUR_TIME, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Shooting Incidents by Time of Day",
+       x = "Time of Day",
+       y = "Number of Shooting Incidents")
+```
+
+### What is the distribution of the number of shooting incidents by time of day?
+
+```{r}
+shootings %>%
+  count(OCCUR_TIME) %>%
+  ggplot(aes(x = n)) +
+  geom_histogram(bins = 20) +
+  labs(title = "Distribution of the Number of Shooting Incidents by Time of Day",
+       x = "Number of Shooting Incidents",
+       y = "Frequency")
+```
+
+### Which day of the week has the most shooting incidents?
+
+```{r}
+shootings %>%
+  count(OCCUR_DAY_OF_WEEK) %>%
+  ggplot(aes(x = OCCUR_DAY_OF_WEEK, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Shooting Incidents by Day of the Week",
+       x = "Day of the Week",
+       y = "Number of Shooting Incidents")
+```
+
+### Which month has the most shooting incidents?
+
+```{r}
+shootings %>%
+  count(OCCUR_MONTH) %>%
+  ggplot(aes(x = OCCUR_MONTH, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Shooting Incidents by Month",
+       x = "Month",
+       y = "Number of Shooting Incidents")
+```
+
+### Compare boroughs by the number of shooting incidents per year over time
+
+```{r}
+shootings %>%
+  count(BORO, OCCUR_YEAR) %>%
+  ggplot(aes(x = OCCUR_YEAR, y = n, fill = BORO)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Number of Shooting Incidents by Borough and Year",
+       x = "Year",
+       y = "Number of Shooting Incidents")
+```
+
+We can see that the number of shooting incidents is higher in the Bronx and Brooklyn. Also, the number of shooting incidents signifactly decreased between 2015 and 2020.
+
+### Compare boroughs by the number of shooting incidents per month over time
+
+```{r}
+shootings %>%
+  count(BORO, OCCUR_MONTH) %>%
+  ggplot(aes(x = OCCUR_MONTH, y = n, fill = BORO)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Number of Shooting Incidents by Borough and Month",
+       x = "Month",
+       y = "Number of Shooting Incidents")
+```
+
+It appears the shootings are more frequent in the summer months and in the middle of the month. The number of shootings is also higher in the Bronx and Brooklyn.
+
+### Compare boroughs by the number of shooting incidents per day of the week over time
+
+```{r}
+shootings %>%
+  count(BORO, OCCUR_DAY_OF_WEEK) %>%
+  ggplot(aes(x = OCCUR_DAY_OF_WEEK, y = n, fill = BORO)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Number of Shooting Incidents by Borough and Day of the Week",
+       x = "Day of the Week",
+       y = "Number of Shooting Incidents")
+```
+
+It appears that the number of shootings is higher on the weekends and in the Bronx and Brooklyn.
+
+### What is the distribution of the age of victims?
+
+```{r}
+shootings %>%
+  count(VIC_AGE_GROUP) %>%
+  ggplot(aes(x = VIC_AGE_GROUP, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Shooting Incidents by Victim's Age Group",
+       x = "Victim's Age Group",
+       y = "Number of Shooting Incidents")
+```
+
+### What is the distribution of the age of victims by borough?
+
+```{r}
+shootings %>%
+  count(BORO, VIC_AGE_GROUP) %>%
+  ggplot(aes(x = VIC_AGE_GROUP, y = n, fill = BORO)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Number of Shooting Incidents by Victim's Age Group and Borough",
+       x = "Victim's Age Group",
+       y = "Number of Shooting Incidents")
+```
+
+It appears that most victims are between the ages of 25-44 and that the Brooklyn has the highest number of victims in this age group.
+
+### What is the distribution of the age of victims by year?
+
+```{r}
+shootings %>%
+  count(OCCUR_YEAR, VIC_AGE_GROUP) %>%
+  ggplot(aes(x = VIC_AGE_GROUP, y = n, fill = OCCUR_YEAR)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Number of Shooting Incidents by Victim's Age Group and Year",
+       x = "Victim's Age Group",
+       y = "Number of Shooting Incidents")
+```
+
+It appears that the number of shooting incidents involving victims between the ages of 18 and 24 has been increasing over time.
+
+### What is the distribution of the race of victims by year?
+
+```{r}
+ggplot(shootings, aes(x=OCCUR_YEAR, fill=VIC_RACE)) +
+  geom_bar() +
+  labs(title = "Distribution of Victim Race by Year",
+       x = "Year",
+       y = "Count",
+       fill = "Race") +
+  scale_fill_discrete(limits=unique(shootings$VIC_RACE)) +
+  theme(legend.position="bottom")
+
+```
+
+It appears that the number of shooting incidents involving Black victims has been increasing over time.
+
+### What is the distribution of the gender of victims by year?
+
+```{r}
+shootings %>%
+  group_by(OCCUR_YEAR, VIC_SEX) %>%
+  summarize(count = n()) %>%
+  ggplot(aes(x = OCCUR_YEAR, y = count, fill = VIC_SEX)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Distribution of Gender of Victims by Year",
+       x = "Year",
+       y = "Number of Victims",
+       fill = "Gender")
+```
+
+We observe that the majority of victims are male. Also, the number of female victims has been rising since 2019.
+
+### What is the relationship between the perpetrator's age, sex, and race with shooting incidents
+
+```{r}
+ggplot(data = shootings, aes(x = PERP_AGE_GROUP, fill = PERP_RACE)) +
+  geom_bar() +
+  facet_grid(~PERP_SEX) +
+  labs(x = "Perpetrator's Age Group", y = "Count", fill = "Perpetrator's Race") +
+  ggtitle("Distribution of Perpetrator's Age Group, Sex, and Shooting Incidents") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6))
+
+```
+
+### Cases classified as murder vs not murder
+
+```{r}
+shootings %>%
+  count(STATISTICAL_MURDER_FLAG) %>%
+  ggplot(aes(x = STATISTICAL_MURDER_FLAG, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Shooting Incidents that resulted in murder or not",
+       x = "STATISTICAL_MURDER_FLAG",
+       y = "Number of Shooting Incidents")
+```
+
+We can see that the majority of incidents reported were not classified as murder.
+
+```{r}
+ggplot(data = shootings, aes(x = PERP_AGE_GROUP, fill = PERP_RACE)) +
+  geom_bar() +
+  facet_grid(~STATISTICAL_MURDER_FLAG) +
+  labs(x = "Perpetrator's Age Group", y = "Count", fill = "Perpetrator's Race") +
+  ggtitle("Distribution of Perpetrator's Age Group, Sex, and reported murders") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6))
+```
+
+## Modeling
+
+We are going to analyze the relationship between the `STATISTICAL_MURDER_FLAG` attribute and the other independent variables reported. Our goal is to try to predict the outcome of a shooting incident (whether it resulted in murder or not).
+
+### Split data into training and testing sets
+
+The relevant columns for the analysis are first selected from the data set "shootings" using the select function and the "columns" vector. Next, categorical variables are converted to factor variables using lapply and as.factor. The data set is then split into a training set (70%) and a test set (30%) using the sample function.
+
+```{r}
+columns <- c("PRECINCT", "PERP_AGE_GROUP", "PERP_SEX", "PERP_RACE", "VIC_AGE_GROUP", "VIC_SEX", "VIC_RACE", "OCCUR_YEAR", "OCCUR_MONTH", "OCCUR_DAY_OF_WEEK", "STATISTICAL_MURDER_FLAG")
+
+# Select relevant columns
+shootings_model_data <- shootings %>% select(one_of(columns))
+
+# Convert categorical variables to factor
+shootings_model_data[c("PERP_AGE_GROUP", "PERP_SEX", "PERP_RACE", "VIC_AGE_GROUP", "VIC_SEX", "VIC_RACE", "OCCUR_DAY_OF_WEEK")] <- lapply(shootings_model_data[c("PERP_AGE_GROUP", "PERP_SEX", "PERP_RACE", "VIC_AGE_GROUP", "VIC_SEX", "VIC_RACE", "OCCUR_DAY_OF_WEEK")], as.factor)
+
+# Split data into training and test sets
+set.seed(123)
+split <- sample(c(TRUE, FALSE), nrow(shootings_model_data), replace = TRUE, prob = c(0.7, 0.3))
+train_data <- shootings_model_data[split, ]
+test_data <- shootings_model_data[!split, ]
+```
+
+### Define and fit the logistic regression model
+
+The glm function is used to fit a logistic regression model to the training data, where the dependent variable is STATISTICAL_MURDER_FLAG and the independent variables are all other variables in the data (specified by ~ .)
+
+```{r}
+# Fit logistic regression model
+model <- glm(STATISTICAL_MURDER_FLAG ~ ., data = shootings_model_data, family = binomial(link = "logit"))
+summary(model)
+
+```
+
+Some conclusions:
+
+- From the coefficients, it seems that the model suggests that some of the precincts (`PRECINCT7`, `PRECINCT26`) are significantly associated with the occurrence of statistical murders (p-value <0.05).
+  - For example: a 1-unit increase in `PRECINCT7` is associated with a 1.45 decrease in the log odds of having a value of 1 for `STATISTICAL_MURDER_FLAG`, holding all other variables constant.
+- However, most of the precincts have non-significant association with the occurrence of statistical murders (`p-value >0.05`).
+- The intercept has a p-value of 0.926296, which indicates that it's not significantly associated with the occurrence of statistical murders.
+- It can be concluded that the model has some predictive power in identifying the precincts that are significantly associated with the occurrence of statistical murders.
+- However, it is important to consider other factors and perform more analysis to fully understand the relationship between the precincts and the occurrence of statistical murders.
+
+### Predict the outcome of the shooting incident using the test data
+
+```{r}
+# Predict on test data
+predictions <- predict(model, test_data, type = "response")
+
+# Convert predictions to binary class
+predictions_binary <- ifelse(predictions > 0.5, "TRUE", "FALSE")
+
+# Calculate accuracy
+accuracy <- mean(predictions_binary == test_data$STATISTICAL_MURDER_FLAG)
+accuracy
+```
+
+The accuracy of the model is 0.81, which means that the model correctly predicted the "STATISTICAL_MURDER_FLAG" class 81% of the time when applied to the test data.
+
+```{r}
+# Plotting confusion matrix: https://stackoverflow.com/questions/23891140/r-how-to-visualize-confusion-matrix-using-the-caret-package
+
+library(yardstick)
+library(ggplot2)
+
+truth_predicted <- data.frame(
+  obs=as.factor(test_data$STATISTICAL_MURDER_FLAG),
+  pred=as.factor(predictions_binary)
+)
+
+conf_matrix <- conf_mat(truth_predicted, 'obs', 'pred')
+
+autoplot(conf_matrix, type = "heatmap") +
+  scale_fill_gradient(low="#D6EAF8",high = "#2E86C1")
+
+```
+
+## Pitfalls
+
+This accuracy score provides a general measure of how well the model performed in predicting the binary outcome of "STATISTICAL_MURDER_FLAG". However, this score alone is not enough to evaluate the model's performance, and some potential pitfalls include:
+
+- Overfitting: the model may have memorized the training data instead of learning the underlying patterns, leading to a high accuracy score on the training set but poor performance on unseen data.
+
+- Imbalanced classes: if the target variable has imbalanced classes (e.g. a large majority of "FALSE" and a small number of "TRUE"), accuracy may not be an appropriate evaluation metric as the model can still achieve a high score by simply predicting "FALSE" all the time.
+
+## Bias Identification
+
+There are several sources of bias that could potentially impact the NYPD shootings dataset:
+
+- Selection bias: The dataset may only include incidents that have been reported, leading to a bias towards more high-profile or high-severity incidents.
+- Demographic bias: The dataset may not accurately reflect the experiences of certain populations, such as racial or ethnic minorities, leading to a bias in the representation of the experiences of these groups.
+- Geographical bias: Incidents may be overrepresented in certain regions or underrepresented in others, leading to a bias in the representation of shootings across different areas.
