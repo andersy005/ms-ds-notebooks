@@ -228,3 +228,11 @@ ggplot(forecast_confirmed, aes(ds, yhat, color = "Confirmed Cases")) +
 ```
 
 We can see that the number of confirmed cases and fatalities will continue to increase in the United States. The model's uncertainty interval is also increasing, which means that the model is less confident in its predictions as time goes on.
+
+## Conclusion
+
+In this post, we have explored the COVID-19 dataset and performed some exploratory data analysis. We have also used the `forecast` package to forecast the number of confirmed cases and fatalities in the United States.
+
+## Possible source of bias
+
+The data used in this post is from the Johns Hopkins University Center for Systems Science and Engineering (JHU CSSE). The data is updated daily, and the data for the United States is updated at 23:59 UTC. This means that the data for the United States is updated at 4:59 PM EST. This means that the data for the United States is not updated until the next day. This could be a source of bias in the data.
