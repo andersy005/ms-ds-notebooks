@@ -18,6 +18,12 @@ This notebook will explore the following questions:
 - We will look at patterns in the data by creating visualizations to answer the above questions
 - using the `STATISTICAL_MURDER_FLAG`, we will look at a logistic regression model that tries to predict whether a reporting shooting incident resulted in murder or not
 
+## Note about additional packages used
+
+The following packages are used within this document and they need to be installed first:
+
+- [yardstick](https://yardstick.tidymodels.org/)
+
 ## Importing the Data
 
 To import the data, we can use the `read.csv()` function from the `readr` package:

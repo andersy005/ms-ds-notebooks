@@ -21,10 +21,15 @@ Novel Coronavirus (COVID-19) is a global pandemic that has affected countries of
 
 ## Used Packages
 
+### Note about additional packages used
+
+The following packages are used within this document and they need to be installed first:
+
+- [prophet](https://facebook.github.io/prophet/)
+
 ```{r packages, message=FALSE, warning=FALSE}
 library(tidyverse)
 library(prophet)
-library(fable)
 ```
 
 ## Loading Data
