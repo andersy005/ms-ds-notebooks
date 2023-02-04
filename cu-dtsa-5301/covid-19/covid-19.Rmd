@@ -10,6 +10,25 @@ output:
 
 Novel Coronavirus (COVID-19) is a global pandemic that has affected countries of all sizes around the world. The Johns Hopkins University Center for Systems Science and Engineering (JHU CSSE) has provided a dataset of confirmed cases and fatalities linked to the virus which are available on their Github page. This analysis looks at the dataset provided by JHU CSSE to provide a better understanding of the severity of the outbreak, and how it has played out over time across different countries and regions.
 
+## Questions of Interest
+
+1. How has the number of confirmed cases and fatalities changed over time?
+2. How has the number of confirmed cases and fatalities changed over time in the United States?
+3. How has the number of confirmed cases and fatalities changed over time in the United States compared to other countries?
+4. What is the relationship between the number of confirmed cases and the number of fatalities?
+5. Where are the most confirmed cases and fatalities?
+6. Which countries have the least confirmed cases and fatalities?
+7. When did we reach 1 million confirmed cases? 10 million confirmed cases? 100 million confirmed cases? 1 billion confirmed cases?
+8. Can we forecast the number of confirmed cases and fatalities in the future?
+
+## Used Packages
+
+```{r packages, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(prophet)
+library(fable)
+```
+
 ## Loading Data
 
 ```{r setup}
@@ -20,5 +39,194 @@ root <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_c
 files <- c("time_series_covid19_confirmed_global.csv", "time_series_covid19_deaths_global.csv")
 
 items <- lapply(files, function(x) read_csv(paste0(root, x)))
-items
+confirmed <- items[[1]]
+deaths <- items[[2]]
 ```
+
+## Tidying and Transforming Data
+
+Let's tidy up the data a bit by melting the data into a long format, and then joining the confirmed and death data together.
+
+```{r tidy, message=FALSE, warning=FALSE}
+confirmed <- confirmed %>%
+  select(-Lat, -Long) %>%
+  pivot_longer(-c("Province/State", "Country/Region"), names_to = "date", values_to = "confirmed") %>%
+  mutate(date = as.Date(date, format = "%m/%d/%y"))
+
+deaths <- deaths %>%
+  select(-Lat, -Long) %>%
+  pivot_longer(-c("Province/State", "Country/Region"), names_to = "date", values_to = "deaths") %>%
+  mutate(date = as.Date(date, format = "%m/%d/%y"))
+
+df <- left_join(confirmed, deaths, by = c("Province/State", "Country/Region", "date"))
+
+glimpse(df)
+
+```
+
+## Exploratory Data Analysis
+
+### How has the number of confirmed cases and fatalities changed over time?
+
+```{r plot1}
+df %>%
+  group_by(date) %>%
+  summarise(confirmed = sum(confirmed), deaths = sum(deaths)) %>%
+  ggplot(aes(x = date, y = confirmed)) +
+  geom_line() +
+  geom_line(aes(y = deaths), color = "red") +
+  labs(title = "Number of Confirmed Cases and Fatalities Over Time",
+       x = "Date",
+       y = "Number of Cases") +
+  theme_minimal()
+```
+
+### How has the number of confirmed cases and fatalities changed over time in the United States?
+
+```{r plot2}
+df %>%
+  filter(`Country/Region` == "US") %>%
+  group_by(date) %>%
+  summarise(confirmed = sum(confirmed), deaths = sum(deaths)) %>%
+  ggplot(aes(x = date, y = confirmed)) +
+  geom_line() +
+  geom_line(aes(y = deaths), color = "red") +
+  labs(title = "Number of Confirmed Cases and Fatalities Over Time in the United States",
+       x = "Date",
+       y = "Number of Cases") +
+  theme_minimal()
+```
+
+### How has the number of confirmed cases and fatalities changed over time in the United States compared to other countries?
+
+```{r plot3}
+df %>%
+  filter(`Country/Region` != "US") %>%
+  group_by(date, `Country/Region`) %>%
+  summarise(confirmed = sum(confirmed), deaths = sum(deaths)) %>%
+  group_by(date) %>%
+  summarise(confirmed = sum(confirmed), deaths = sum(deaths)) %>%
+  ggplot(aes(x = date, y = confirmed)) +
+  geom_line() +
+  geom_line(aes(y = deaths), color = "red") +
+  labs(title = "Number of Confirmed Cases and Fatalities Over Time in the United States Compared to Other Countries",
+       x = "Date",
+       y = "Number of Cases") +
+  theme_minimal()
+```
+
+### What is the relationship between the number of confirmed cases and the number of fatalities?
+
+```{r plot4}
+df %>%
+  group_by(date) %>%
+  summarise(confirmed = sum(confirmed), deaths = sum(deaths)) %>%
+  ggplot(aes(x = confirmed, y = deaths)) +
+  geom_point() +
+  labs(title = "Number of Confirmed Cases and Fatalities Over Time",
+       x = "Number of Confirmed Cases",
+       y = "Number of Fatalities") +
+  theme_minimal()
+```
+
+### Where are the most confirmed cases and fatalities?
+
+```{r plot5}
+df %>%
+  group_by(`Country/Region`) %>%
+  summarise(confirmed = sum(confirmed), deaths = sum(deaths)) %>%
+  arrange(desc(confirmed)) %>%
+  head(10) %>%
+  ggplot(aes(x = reorder(`Country/Region`, confirmed), y = confirmed)) +
+  geom_col() +
+  labs(title = "Top 10 Countries with the Most Confirmed Cases",
+       x = "Country",
+       y = "Number of Confirmed Cases") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+```{r plot6}
+df %>%
+  group_by(`Country/Region`) %>%
+  summarise(confirmed = sum(confirmed), deaths = sum(deaths)) %>%
+  arrange(desc(deaths)) %>%
+  head(10) %>%
+  ggplot(aes(x = reorder(`Country/Region`, deaths), y = deaths)) +
+  geom_col() +
+  labs(title = "Top 10 Countries with the Most Fatalities",
+       x = "Country",
+       y = "Number of Fatalities") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+## Modeling: Time series forecasting
+
+In this section, we will use the `forecast` package to forecast the number of confirmed cases and fatalities in the United States.
+
+### Forecasting the number of confirmed cases and fatalities in the United States
+
+We will be using the `prophet` package to forecast the number of confirmed cases and fatalities in the United States. Also, we show the uncertainty interval of the forecast.
+
+```{r prophet}
+# Filter data for the US
+df_us <- df %>%
+  filter(`Country/Region` == "US") %>%
+  group_by(date) %>%
+  summarise(confirmed = sum(confirmed), deaths = sum(deaths))
+
+# Create time series data for confirmed cases
+df_confirmed <- df_us %>%
+  select(date, confirmed) %>%
+  rename(ds = date, y = confirmed) %>%
+  mutate(ds = as.POSIXct(ds))
+
+# Create time series data for fatalities
+df_deaths <- df_us %>%
+  select(date, deaths) %>%
+  rename(ds = date, y = deaths) %>%
+  mutate(ds = as.POSIXct(ds))
+```
+
+Let's fit the model to the data.
+
+```{r prophet_fit}
+# Fit prophet models for confirmed cases and fatalities
+prophet_confirmed <- prophet(df_confirmed, yearly.seasonality = TRUE, weekly.seasonality = TRUE, daily.seasonality = FALSE)
+prophet_deaths <- prophet(df_deaths, yearly.seasonality = TRUE, weekly.seasonality = TRUE, daily.seasonality = FALSE)
+```
+
+Let's forecast the number of confirmed cases and fatalities in the United States.
+
+```{r prophet_forecast}
+# Create forecast dataframes
+future_confirmed <- make_future_dataframe(prophet_confirmed, periods = 365)
+future_deaths <- make_future_dataframe(prophet_deaths, periods = 365)
+
+# Generate forecasts
+forecast_confirmed <- predict(prophet_confirmed, future_confirmed)
+forecast_deaths <- predict(prophet_deaths, future_deaths)
+```
+
+Let's plot the forecast.
+
+```{r prophet_plot}
+# Plotting the forecast for confirmed cases
+plot(prophet_confirmed, forecast_confirmed, xlabel = "Date", ylabel = "Number of Confirmed Cases", main = "Forecast of Confirmed Cases in the US")
+
+# Plotting the forecast for fatalities
+plot(prophet_deaths, forecast_deaths, xlabel = "Date", ylabel = "Number of Fatalities", main = "Forecast of Fatalities in the US")
+
+# Combine the two forecasts into a single plot
+ggplot(forecast_confirmed, aes(ds, yhat, color = "Confirmed Cases")) +
+  geom_line() +
+  geom_ribbon(aes(ymin = yhat_lower, ymax = yhat_upper), alpha = 0.2) +
+  geom_line(data = forecast_deaths, aes(ds, yhat, color = "Deaths")) +
+  geom_ribbon(data = forecast_deaths, aes(ymin = yhat_lower, ymax = yhat_upper), alpha = 0.2) +
+  labs(title = "Forecast of Confirmed Cases and Fatalities in the US", x = "Date", y = "Number of Cases") +
+  scale_color_manual(values = c("Confirmed Cases" = "blue", "Deaths" = "red")) +
+  theme_minimal()
+```
+
+We can see that the number of confirmed cases and fatalities will continue to increase in the United States. The model's uncertainty interval is also increasing, which means that the model is less confident in its predictions as time goes on.
