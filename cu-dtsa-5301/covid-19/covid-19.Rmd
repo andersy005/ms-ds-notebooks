@@ -16,10 +16,8 @@ Novel Coronavirus (COVID-19) is a global pandemic that has affected countries of
 2. How has the number of confirmed cases and fatalities changed over time in the United States?
 3. How has the number of confirmed cases and fatalities changed over time in the United States compared to other countries?
 4. What is the relationship between the number of confirmed cases and the number of fatalities?
-5. Where are the most confirmed cases and fatalities?
-6. Which countries have the least confirmed cases and fatalities?
-7. When did we reach 1 million confirmed cases? 10 million confirmed cases? 100 million confirmed cases? 1 billion confirmed cases?
-8. Can we forecast the number of confirmed cases and fatalities in the future?
+5. Which countries have the most confirmed cases and fatalities?
+6. Can we forecast the number of confirmed cases and fatalities in the future?
 
 ## Used Packages
 
