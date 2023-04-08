@@ -30,3 +30,6 @@ port = "443"
 [[services.tcp_checks]]
 interval = 10000
 timeout = 2000
+
+[env]
+PORT = "8000"
