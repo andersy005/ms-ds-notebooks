@@ -1,0 +1,11 @@
+name: cu
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.10
+  - pandas
+  - altair
+  - geopandas
+  - voila
+  - jupyterlab
