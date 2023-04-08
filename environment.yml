@@ -4,8 +4,8 @@ channels:
   - nodefaults
 dependencies:
   - python=3.10
-  - pandas
-  - altair
+  - pandas >=1.5.3
+  - altair >= 4.2.2
   - geopandas
-  - voila
+  - voila >=0.4.0
   - jupyterlab
